@@ -127,14 +127,14 @@ class phpUPnP
 		));
 	}
 
-	public function sendRequestToDevice( $method, $arguments, $url = null, $type = 'RenderingControl:1', $hostIp = '127.0.0.1', $hostPort = '80' )
+	public function sendRequestToDevice( $method, $arguments, $url = null, $service = 'RenderingControl:1', $hostIp = '127.0.0.1', $hostPort = '80' )
 	{
 		if( is_null( $url ) ) $url = $this->getDefaultURL();
 
 		$body  ='<?xml version="1.0" encoding="utf-8"?>' . "\r\n";
 		$body .='<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">' . "\r\n";
 		$body .='   <s:Body>' . "\r\n";
-		$body .='      <u:'.$method.' xmlns:u="urn:schemas-upnp-org:service:'.$type.':1">' . "\r\n";
+		$body .='      <u:'.$method.' xmlns:u="urn:schemas-upnp-org:service:'.$service.'">' . "\r\n";
 
 		foreach( $arguments as $arg=>$value ) {
 			$body .='         <'.$arg.'>'.$value.'</'.$arg.'>' . "\r\n";
@@ -145,7 +145,7 @@ class phpUPnP
 		$body .='</s:Envelope>' . "\r\n\r\n";
 
 		$header = array(
-		    'SOAPACTION: "urn:schemas-upnp-org:service:'.$type.'#'.$method,
+		    'SOAPACTION: "urn:schemas-upnp-org:service:'.$service.'#'.$method,
 		    'CONTENT-TYPE: text/xml ; charset="utf-8"',
 		    'HOST: '.$hostIp.':'.$hostPort,
 		    'Connection: close',
