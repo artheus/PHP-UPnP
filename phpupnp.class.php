@@ -14,7 +14,9 @@
  */
 class phpUPnP
 {
-	const USER_AGENT = 'MacOSX/10.8.2 UPnP/1.1 PHP-UPnP/0.0.1a';
+	const USER_AGENT = 'MacOSX/10.8.2 UPnP/1.1 PHPUPnP/0.0.1a';
+
+	const UPNP_SERVICE_RENDERCONTROL = 'RenderingControl:1';
 
 	private $curlHandle = null;
 
@@ -26,21 +28,27 @@ class phpUPnP
 	 * @todo Allow unicasting.
 	 * @todo Sort arguments better.
 	 */
-	public function mSearch( $st = 'ssdp:all', $mx = 2, $man = 'ssdp:discover', $from = null, $port = null, $sockTimout = '5' )
+	public function mSearch( $st = 'ssdp:all', $deviceIp = '239.255.255.250', $mx = 1, $man = 'ssdp:discover', $from = null, $port = null, $sockTimout = '2' )
 	{
+		$hostIp = '239.255.255.250';
+
+		if( $deviceIp != $hostIp ) {
+			$hostIp = gethostbyname(trim('mylocalip'));
+		}
+
 		// BUILD MESSAGE
 		$msg  = 'M-SEARCH * HTTP/1.1' . "\r\n";
-		$msg .= 'HOST: 239.255.255.250:1900' ."\r\n";
+		$msg .= 'HOST: '.$hostIp.':1900' . "\r\n";
 		$msg .= 'MAN: "'. $man .'"' . "\r\n";
 		$msg .= 'MX: '. $mx ."\r\n";
-		$msg .= 'ST:' . $st ."\r\n";
+		$msg .= 'ST: ' . $st ."\r\n";
 		$msg .= 'USER-AGENT: '. static::USER_AGENT ."\r\n";
 		$msg .= '' ."\r\n";
 
 		// MULTICAST MESSAGE
-		$sock = socket_create( AF_INET, SOCK_DGRAM, 0 );
+		$sock = socket_create( AF_INET, SOCK_DGRAM, getprotobyname('udp') );
 		$opt_ret = socket_set_option( $sock, 1, 6, TRUE );
-		$send_ret = socket_sendto( $sock, $msg, strlen( $msg ), 0, '239.255.255.250', 1900);
+		$send_ret = socket_sendto( $sock, $msg, strlen( $msg ), 0, $deviceIp, 1900);
 
 		// SET TIMEOUT FOR RECIEVE
 		socket_set_option( $sock, SOL_SOCKET, SO_RCVTIMEO, array( 'sec'=>$sockTimout, 'usec'=>'0' ) );
@@ -48,9 +56,9 @@ class phpUPnP
 		// RECIEVE RESPONSE
 		$response = array();
 		do {
-			$buf = null;
-			@socket_recvfrom( $sock, $buf, 1024, MSG_WAITALL, $from, $port );
-			if( !is_null($buf) )$response[] = $this->parseMSearchResponse( $buf );
+			unset( $buf );
+			@socket_recv( $sock, $buf, 1024, MSG_WAITALL ); //, $from, $port );
+			if( !is_null($buf) ) $response[] = $this->parseMSearchResponse( $buf );
 		} while( !is_null($buf) );
 
 		// CLOSE SOCKET
@@ -76,7 +84,7 @@ class phpUPnP
 					$parsedResponse['date'] = str_ireplace( 'date: ', '', $row );
 
 			if( stripos( $row, 'ext') === 0 )
-					$parsedResponse['ext'] = str_ireplace( 'ext: ', '', $row );
+					$parsedResponse['ext'] = str_ireplace( 'ext:', '', $row );
 
 			if( stripos( $row, 'loca') === 0 )
 					$parsedResponse['location'] = str_ireplace( 'location: ', '', $row );
@@ -109,47 +117,57 @@ class phpUPnP
 		return $this->curlHandle;
 	}
 
-	public function setVolume( $desiredVolume = 0, $channel = 'Master', $instanceId = 0 )
+	public function setVolume( $desiredVolume, $url = null, $channel = 'Master', $instanceId = 0 )
 	{
 		return $this->sendRequestToDevice( 'SetVolume', array(
+			'InstanceID' => $instanceId,
+			'Channel' => $channel,
 			'DesiredVolume' => $desiredVolume,
-			'Channel' => $channel,
-			'InstanceId' => $instanceId,
-		));
+		), static::UPNP_SERVICE_RENDERCONTROL, $url );
 	}
 
-	public function setMute( $desiredMute = 1, $channel = 'Master', $instanceId = 0 )
+	public function setMute( $desiredMute, $url = null, $channel = 'Master', $instanceId = 0 )
 	{
+		if( is_bool($desiredMute) ) $desiredMute = $desiredMute ? 1 : 0;
+
 		return $this->sendRequestToDevice( 'SetMute', array(
-			'DesiredMute' => $desiredMute,
+			'InstanceID' => $instanceId,
 			'Channel' => $channel,
-			'InstanceId' => $instanceId,
-		));
+			'DesiredMute' => $desiredMute,
+		), static::UPNP_SERVICE_RENDERCONTROL, $url );
 	}
 
-	public function sendRequestToDevice( $method, $arguments, $url = null, $service = 'RenderingControl:1', $hostIp = '127.0.0.1', $hostPort = '80' )
+	public function sendRequestToDevice( $method, $arguments, $service, $url = null, $hostIp = null, $hostPort = '80' )
 	{
 		if( is_null( $url ) ) $url = $this->getDefaultURL();
 
-		$body  ='<?xml version="1.0" encoding="utf-8"?>' . "\r\n";
-		$body .='<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">' . "\r\n";
-		$body .='   <s:Body>' . "\r\n";
-		$body .='      <u:'.$method.' xmlns:u="urn:schemas-upnp-org:service:'.$service.'">' . "\r\n";
+		if( is_null($hostIp) ) {
+			$hostIp = gethostbyname(trim('mylocalip'));
+		}
+
+		$body  ='<?xml version="1.0" encoding="utf-8"?>';
+		$body .='<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">';
+		$body .='<s:Body>';
+		$body .='<u:'.$method.' xmlns:u="urn:schemas-upnp-org:service:'.$service.'">';
 
 		foreach( $arguments as $arg=>$value ) {
-			$body .='         <'.$arg.'>'.$value.'</'.$arg.'>' . "\r\n";
+			//if( is_string($value) ) $value = '"'.$value.'"';
+			$body .='<'.$arg.'>'.$value.'</'.$arg.'>';
 		}
 		
-		$body .='      </u:'.$method.'>' . "\r\n";
-		$body .='   </s:Body>' . "\r\n";
-		$body .='</s:Envelope>' . "\r\n\r\n";
+		$body .='</u:'.$method.'>';
+		$body .='</s:Body>';
+		$body .='</s:Envelope>';
+
+		$body = utf8_encode( $body );
 
 		$header = array(
-		    'SOAPACTION: "urn:schemas-upnp-org:service:'.$service.'#'.$method,
-		    'CONTENT-TYPE: text/xml ; charset="utf-8"',
-		    'HOST: '.$hostIp.':'.$hostPort,
-		    'Connection: close',
-		    'Content-Length: ' . strlen($body),
+			'HOST: '.$hostIp.':'.$hostPort,
+			'CONTENT-LENGTH: ' . strlen($body),
+			'CONTENT-TYPE: text/xml; charset="utf-8"',
+			'USER-AGENT: ' . static::USER_AGENT,
+		    'SOAPACTION: "urn:schemas-upnp-org:service:'.$service.'#'.$method . '"',
+		    
 		);
 
 		$ch = curl_init();
@@ -162,7 +180,7 @@ class phpUPnP
 		$response = curl_exec( $ch );
 		curl_close( $ch );
 
-		return $respone;
+		return $response;
 	}
 
 	public function getDefaultURL()
