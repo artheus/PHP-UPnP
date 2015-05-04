@@ -47,7 +47,7 @@ class phpUPnP
 
 		// MULTICAST MESSAGE
 		$sock = socket_create( AF_INET, SOCK_DGRAM, getprotobyname('udp') );
-		$opt_ret = socket_set_option( $sock, 1, 6, TRUE );
+		$opt_ret = socket_set_option($sock, SOL_SOCKET, SO_BROADCAST, 1);
 		$send_ret = socket_sendto( $sock, $msg, strlen( $msg ), 0, $deviceIp, 1900);
 
 		// SET TIMEOUT FOR RECIEVE
